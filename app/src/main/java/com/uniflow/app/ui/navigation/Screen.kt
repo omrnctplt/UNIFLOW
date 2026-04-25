@@ -15,4 +15,7 @@ sealed class Screen(val route: String, val title: String = "", val icon: ImageVe
     object Calendar : Screen("calendar", "Calendar", Icons.Default.CalendarMonth)
     object Data : Screen("data", "Data", Icons.Default.Storage)
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
+    object Classrooms : Screen("classrooms", "Classrooms", Icons.Default.Storage) // We'll use a standard icon like Storage or Domain if available. Using Storage for now.
+    object Assignments : Screen("assignments", "Assignments", Icons.Default.CalendarMonth) // Reusing CalendarMonth
+    object ChangePassword : Screen("change_password")
 }

@@ -13,6 +13,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.*
 import com.uniflow.app.ui.auth.AuthViewModel
 import com.uniflow.app.ui.auth.AuthState
+import com.uniflow.app.ui.auth.ChangePasswordScreen
 import com.uniflow.app.ui.auth.LoginScreen
 import com.uniflow.app.ui.auth.RegisterScreen
 import com.uniflow.app.ui.navigation.Screen
@@ -26,19 +27,23 @@ fun MainScreen(
     val authState by authViewModel.authState.collectAsState()
     val userData by authViewModel.currentUserData.collectAsState()
     
-    val allItems = listOf(
+    val adminItems = listOf(
         Screen.Home,
         Screen.Calendar,
         Screen.Data,
+        Screen.Classrooms,
+        Screen.Assignments,
+        Screen.Settings
+    )
+
+    val lecturerItems = listOf(
+        Screen.Home,
+        Screen.Calendar,
         Screen.Settings
     )
 
     val navItems = remember(userData) {
-        if (userData == null || userData?.role == "Admin") {
-            allItems
-        } else {
-            allItems.filter { it != Screen.Data }
-        }
+        if (userData?.role == "Admin") adminItems else lecturerItems
     }
 
     // Auth redirection logic
@@ -46,13 +51,19 @@ fun MainScreen(
         when (authState) {
             is AuthState.Authenticated -> {
                 if (userData != null) {
-                    if (!userData!!.onboarded) {
+                    if (userData!!.mustChangePassword) {
+                        if (navController.currentDestination?.route != Screen.ChangePassword.route) {
+                            navController.navigate(Screen.ChangePassword.route) {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        }
+                    } else if (!userData!!.onboarded) {
                         navController.navigate(Screen.Onboarding.route) {
                             popUpTo(0) { inclusive = true }
                         }
                     } else {
                         val currentRoute = navController.currentDestination?.route
-                        if (currentRoute == Screen.Login.route || currentRoute == Screen.Register.route || currentRoute == Screen.Onboarding.route) {
+                        if (currentRoute == Screen.Login.route || currentRoute == Screen.Register.route || currentRoute == Screen.Onboarding.route || currentRoute == Screen.ChangePassword.route) {
                             navController.navigate(Screen.Home.route) {
                                 popUpTo(0) { inclusive = true }
                             }
@@ -80,7 +91,8 @@ fun MainScreen(
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
                 
-                val showBottomBar = allItems.any { it.route == currentRoute } && 
+                // Using navItems from above logic
+                val showBottomBar = navItems.any { it.route == currentRoute } &&
                                    userData != null && 
                                    userData!!.onboarded
 
@@ -131,9 +143,19 @@ fun MainScreen(
                         authViewModel.completeOnboarding()
                     })
                 }
+                composable(Screen.ChangePassword.route) {
+                    ChangePasswordScreen(
+                        viewModel = authViewModel,
+                        onChangeSuccess = {
+                            // Handled by LaunchedEffect in MainScreen
+                        }
+                    )
+                }
                 composable(Screen.Home.route) { HomeScreen(authViewModel) }
                 composable(Screen.Calendar.route) { CalendarScreen() }
                 composable(Screen.Data.route) { DataScreen() }
+                composable(Screen.Classrooms.route) { ClassroomsScreen() }
+                composable(Screen.Assignments.route) { AssignmentScreen() }
                 composable(Screen.Settings.route) { SettingsScreen(authViewModel) }
             }
         }

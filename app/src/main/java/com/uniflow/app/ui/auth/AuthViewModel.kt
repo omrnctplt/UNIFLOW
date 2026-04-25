@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuthException
 import com.uniflow.app.data.model.User
 import com.uniflow.app.data.repository.AuthRepository
+import com.uniflow.app.utils.HashUtils
 import com.uniflow.app.utils.PasswordValidator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,7 +59,9 @@ class AuthViewModel @Inject constructor(
                 // 2. Eğer normal giriş başarısızsa, Excel'den gelen hoca mı diye bak
                 try {
                     val importedUser = repository.findImportedUser(cleanUsername)
-                    if (importedUser != null && importedUser.password == pass) {
+                    val inputHash = HashUtils.sha256(pass)
+
+                    if (importedUser != null && (importedUser.password == pass || importedUser.passwordHash == inputHash)) {
                         // Şifre doğru! Kullanıcıyı Firebase Auth'a "yükselt"
                         repository.upgradeImportedUser(importedUser, pass)
                         completeLoginFlow()
@@ -106,6 +109,30 @@ class AuthViewModel @Inject constructor(
                 _currentUserData.value = _currentUserData.value?.copy(onboarded = true)
             } catch (e: Exception) {
                 Log.e("UniFlowAuth", "Onboarding save failed", e)
+            }
+        }
+    }
+
+    fun changePassword(newPass: String) {
+        if (!PasswordValidator.isValid(newPass)) {
+            _authState.value = AuthState.Error(PasswordValidator.getErrorMessage())
+            return
+        }
+
+        _authState.value = AuthState.Loading
+        viewModelScope.launch {
+            try {
+                repository.changePassword(newPass)
+                val uid = repository.currentUser?.uid
+                if (uid != null) {
+                    repository.setMustChangePassword(uid, false)
+                    _currentUserData.value = _currentUserData.value?.copy(mustChangePassword = false)
+                    _authState.value = AuthState.Authenticated
+                } else {
+                    _authState.value = AuthState.Error("Oturum bulunamadı.")
+                }
+            } catch (e: Exception) {
+                _authState.value = AuthState.Error(mapFirebaseError(e))
             }
         }
     }

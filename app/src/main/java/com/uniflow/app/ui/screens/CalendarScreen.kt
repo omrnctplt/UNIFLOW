@@ -17,12 +17,26 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.uniflow.app.data.model.Course
+import com.uniflow.app.data.model.ScheduleEntry
+import com.uniflow.app.ui.auth.AuthViewModel
 
 @Composable
-fun CalendarScreen(viewModel: DataViewModel = hiltViewModel()) {
+fun CalendarScreen(viewModel: AdminViewModel = hiltViewModel(), authViewModel: AuthViewModel = hiltViewModel()) {
     val days = listOf("Mon", "Tue", "Wed", "Thu", "Fri")
     val slots = listOf("Morning", "Afternoon")
-    val courses by viewModel.importedCourses.collectAsState() // In real app, fetch from DB
+
+    val allScheduleEntries by viewModel.allScheduleEntries.collectAsState()
+    val allCourses by viewModel.allCourses.collectAsState()
+    val userData by authViewModel.currentUserData.collectAsState()
+
+    // Filter entries for logged-in user if they are a Lecturer
+    val entries = remember(allScheduleEntries, userData) {
+        if (userData?.role == "Admin") {
+            allScheduleEntries
+        } else {
+            allScheduleEntries.filter { it.lecturerId == userData?.username }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -65,11 +79,11 @@ fun CalendarScreen(viewModel: DataViewModel = hiltViewModel()) {
                 }
                 
                 repeat(2) { slotIndex ->
-                    val slotId = dayIndex * 2 + slotIndex
-                    val courseInSlot = courses.find { it.slot == slotId }
+                    val entryInSlot = entries.find { it.day == dayIndex && it.timeSlot == slotIndex }
+                    val course = allCourses.find { it.courseCode == entryInSlot?.courseId || it.code == entryInSlot?.courseId }
                     
                     item {
-                        CalendarSlot(courseInSlot)
+                        CalendarSlot(entryInSlot, course)
                     }
                 }
             }
@@ -78,14 +92,14 @@ fun CalendarScreen(viewModel: DataViewModel = hiltViewModel()) {
 }
 
 @Composable
-fun CalendarSlot(course: Course?) {
+fun CalendarSlot(entry: ScheduleEntry?, course: Course?) {
     Card(
         modifier = Modifier
             .height(80.dp)
             .fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (course != null) Color(0xFF1A237E).copy(alpha = 0.1f) else Color.Transparent
+            containerColor = if (entry != null) Color(0xFF1A237E).copy(alpha = 0.1f) else Color.Transparent
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
@@ -96,14 +110,29 @@ fun CalendarSlot(course: Course?) {
                 .padding(8.dp),
             contentAlignment = Alignment.Center
         ) {
-            if (course != null) {
-                Text(
-                    text = course.courseCode,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1A237E),
-                    textAlign = TextAlign.Center
-                )
+            if (entry != null) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = course?.courseCode ?: entry.courseId,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1A237E),
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = course?.name ?: "",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.DarkGray,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = entry.classroomId,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
         }
     }

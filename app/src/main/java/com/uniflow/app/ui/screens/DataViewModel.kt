@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.uniflow.app.data.model.Course
 import com.uniflow.app.data.model.User
 import com.uniflow.app.data.repository.DataRepository
+import com.uniflow.app.utils.HashUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
@@ -124,22 +125,37 @@ class DataViewModel @Inject constructor(
     }
 
     private fun generateLecturerInfo(fullName: String, department: String): User {
-        val titles = listOf("Prof. Dr.", "Assoc. Prof.", "Asst. Prof.", "Dr.", "Lect.", "Prof.")
+        val titles = listOf("Prof. Dr.", "Assoc. Prof.", "Asst. Prof.", "Dr.", "Lect.", "Prof.", "Assoc.")
         var cleanedName = fullName
-        titles.forEach { title ->
-            cleanedName = cleanedName.replace(title, "", ignoreCase = true)
+        var foundTitle = ""
+
+        for (title in titles) {
+            if (cleanedName.contains(title, ignoreCase = true)) {
+                foundTitle = title
+                cleanedName = cleanedName.replace(title, "", ignoreCase = true)
+            }
         }
         
         val username = cleanedName.trim().lowercase().replace(" ", "_")
             .replace("ı", "i").replace("ğ", "g").replace("ü", "u")
             .replace("ş", "s").replace("ö", "o").replace("ç", "c")
             
-        val password = (100000..999999).random().toString()
+        val rawPassword = (100000..999999).random().toString()
+        val passwordHash = HashUtils.sha256(rawPassword)
         
+        // Extract first and last name
+        val nameParts = cleanedName.trim().split(" ")
+        val firstName = if (nameParts.size > 1) nameParts.dropLast(1).joinToString(" ") else nameParts.firstOrNull() ?: ""
+        val lastName = if (nameParts.size > 1) nameParts.last() else ""
+
         return User(
-            name = cleanedName.trim(),
+            name = firstName,
+            surname = lastName,
             username = username,
-            password = password,
+            password = "", // Do not store plaintext password as per strict requirements
+            passwordHash = passwordHash,
+            mustChangePassword = true,
+            title = foundTitle.trim(),
             department = department,
             role = "Lecturer",
             position = "Lecturer"
