@@ -66,5 +66,14 @@ class AuthRepository @Inject constructor(
         firestore.collection("users").document(uid).update("onboarded", true).await()
     }
 
+    suspend fun changePassword(newPass: String) {
+        val user = auth.currentUser ?: throw Exception("User not logged in")
+        user.updatePassword(newPass).await()
+    }
+
+    suspend fun setMustChangePassword(uid: String, mustChange: Boolean) {
+        firestore.collection("users").document(uid).update("must_change_password", mustChange).await()
+    }
+
     fun logout() = auth.signOut()
 }
