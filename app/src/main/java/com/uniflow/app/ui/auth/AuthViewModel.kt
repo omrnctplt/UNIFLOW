@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuthException
 import com.uniflow.app.data.model.User
 import com.uniflow.app.data.repository.AuthRepository
+import com.uniflow.app.utils.PasswordValidator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -82,8 +83,8 @@ class AuthViewModel @Inject constructor(
     }
 
     fun register(user: User, pass: String) {
-        if (pass.length < 6) {
-            _authState.value = AuthState.Error("Şifre en az 6 karakter olmalıdır.")
+        if (!PasswordValidator.isValid(pass)) {
+            _authState.value = AuthState.Error(PasswordValidator.getErrorMessage())
             return
         }
         _authState.value = AuthState.Loading
