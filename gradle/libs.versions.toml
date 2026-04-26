@@ -19,6 +19,9 @@ datastore = "1.1.1"
 desugarJdkLibs = "2.1.5"
 materialIconsExtended = "1.7.2"
 coroutines = "1.9.0"
+mockito = "5.2.0"
+mockk = "1.13.10"
+coroutinesTest = "1.9.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -68,6 +71,12 @@ androidx-datastore-preferences = { group = "androidx.datastore", name = "datasto
 
 # Desugaring
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
+
+# Testing
+mockito-core = { group = "org.mockito", name = "mockito-core", version.ref = "mockito" }
+mockito-inline = { group = "org.mockito", name = "mockito-inline", version.ref = "mockito" }
+mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
