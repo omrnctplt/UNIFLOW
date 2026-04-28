@@ -21,20 +21,30 @@ import com.uniflow.app.data.model.ScheduleEntry
 import com.uniflow.app.ui.auth.AuthViewModel
 
 @Composable
-fun CalendarScreen(viewModel: AdminViewModel = hiltViewModel(), authViewModel: AuthViewModel = hiltViewModel()) {
+fun CalendarScreen(
+    adminViewModel: AdminViewModel = hiltViewModel(),
+    lecturerViewModel: LecturerViewModel = hiltViewModel(),
+    authViewModel: AuthViewModel = hiltViewModel()
+) {
     val days = listOf("Mon", "Tue", "Wed", "Thu", "Fri")
     val slots = listOf("Morning", "Afternoon")
 
-    val allScheduleEntries by viewModel.allScheduleEntries.collectAsState()
-    val allCourses by viewModel.allCourses.collectAsState()
     val userData by authViewModel.currentUserData.collectAsState()
 
-    // Filter entries for logged-in user if they are a Lecturer
-    val entries = remember(allScheduleEntries, userData) {
-        if (userData?.role == "Admin") {
-            allScheduleEntries
-        } else {
-            allScheduleEntries.filter { it.lecturerId == userData?.username }
+    val isAdmin = userData?.role == "Admin"
+
+    // Collect conditionally to avoid unnecessary or unauthorized query execution for lecturers
+    val entries by (if (isAdmin) {
+        adminViewModel.allScheduleEntries
+    } else {
+        lecturerViewModel.scheduleEntries
+    }).collectAsState(initial = emptyList())
+
+    val allCourses by adminViewModel.allCourses.collectAsState()
+
+    LaunchedEffect(userData) {
+        if (userData != null && !isAdmin) {
+            lecturerViewModel.setLecturerId(userData!!.username)
         }
     }
 

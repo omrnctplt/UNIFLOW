@@ -42,8 +42,31 @@ fun SettingsScreen(viewModel: AuthViewModel = hiltViewModel()) {
 
         Spacer(modifier = Modifier.weight(1f))
 
+        var showLogoutDialog by remember { mutableStateOf(false) }
+
+        if (showLogoutDialog) {
+            AlertDialog(
+                onDismissRequest = { showLogoutDialog = false },
+                title = { Text("Logout") },
+                text = { Text("Are you sure you want to log out?") },
+                confirmButton = {
+                    Button(onClick = {
+                        showLogoutDialog = false
+                        viewModel.logout()
+                    }) {
+                        Text("Logout")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showLogoutDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
         Button(
-            onClick = { viewModel.logout() },
+            onClick = { showLogoutDialog = true },
             modifier = Modifier.fillMaxWidth().height(56.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
             shape = RoundedCornerShape(20.dp)
