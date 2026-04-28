@@ -136,11 +136,18 @@ class DataViewModel @Inject constructor(
             }
         }
         
-        val username = cleanedName.trim().lowercase().replace(" ", "_")
-            .replace("ı", "i").replace("ğ", "g").replace("ü", "u")
-            .replace("ş", "s").replace("ö", "o").replace("ç", "c")
+        val username = cleanedName.trim()
+            .replace("ı", "i").replace("I", "i")
+            .replace("ğ", "g").replace("Ğ", "g")
+            .replace("ü", "u").replace("Ü", "u")
+            .replace("ş", "s").replace("Ş", "s")
+            .replace("ö", "o").replace("Ö", "o")
+            .replace("ç", "c").replace("Ç", "c")
+            .lowercase()
+            .replace(" ", "_")
             
-        val rawPassword = (100000..999999).random().toString()
+        val chars = ('A'..'Z') + ('a'..'z') + ('0'..'9')
+        val rawPassword = (1..6).map { chars.random() }.joinToString("")
         val passwordHash = HashUtils.sha256(rawPassword)
         
         // Extract first and last name
