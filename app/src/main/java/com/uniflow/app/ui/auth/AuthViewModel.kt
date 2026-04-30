@@ -1,166 +1,89 @@
 package com.uniflow.app.ui.auth
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.auth.FirebaseAuthException
 import com.uniflow.app.data.model.User
 import com.uniflow.app.data.repository.AuthRepository
+import com.uniflow.app.data.repository.DataRepository
 import com.uniflow.app.utils.HashUtils
-import com.uniflow.app.utils.PasswordValidator
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-@HiltViewModel
-class AuthViewModel @Inject constructor(
-    private val repository: AuthRepository
-) : ViewModel() {
-
-    private val _authState = MutableStateFlow<AuthState>(AuthState.Idle)
-    val authState: StateFlow<AuthState> = _authState
-
-    private val _currentUserData = MutableStateFlow<User?>(null)
-    val currentUserData: StateFlow<User?> = _currentUserData
-
-    init {
-        checkUser()
-    }
-
-    private fun checkUser() {
-        val firebaseUser = repository.currentUser
-        if (firebaseUser != null) {
-            viewModelScope.launch {
-                val data = repository.getUserData(firebaseUser.uid)
-                _currentUserData.value = data
-                _authState.value = AuthState.Authenticated
-            }
-        }
-    }
-
-    fun login(username: String, pass: String) {
-        val cleanUsername = username.trim().lowercase()
-        if (cleanUsername.isBlank() || pass.isBlank()) {
-            _authState.value = AuthState.Error("Lütfen tüm alanları doldurun.")
-            return
-        }
-        
-        _authState.value = AuthState.Loading
-        viewModelScope.launch {
-            try {
-                // 1. Normal girişi dene
-                repository.login(cleanUsername, pass)
-                completeLoginFlow()
-            } catch (e: Exception) {
-                Log.d("UniFlowAuth", "Login failed, checking Firestore for imported user: $cleanUsername")
-                
-                // 2. Eğer normal giriş başarısızsa, Excel'den gelen hoca mı diye bak
-                try {
-                    val importedUser = repository.findImportedUser(cleanUsername)
-                    val inputHash = HashUtils.sha256(pass)
-
-                    if (importedUser != null && (importedUser.password == pass || importedUser.passwordHash == inputHash)) {
-                        // Şifre doğru! Kullanıcıyı Firebase Auth'a "yükselt"
-                        repository.upgradeImportedUser(importedUser, pass)
-                        completeLoginFlow()
-                    } else {
-                        // Kullanıcı hiç yok veya şifre yanlış
-                        _authState.value = AuthState.Error(if (importedUser != null) "Hatalı şifre." else "Kullanıcı bulunamadı.")
-                    }
-                } catch (innerE: Exception) {
-                    _authState.value = AuthState.Error(mapFirebaseError(innerE))
-                }
-            }
-        }
-    }
-
-    private suspend fun completeLoginFlow() {
-        val firebaseUser = repository.currentUser
-        if (firebaseUser != null) {
-            val data = repository.getUserData(firebaseUser.uid)
-            _currentUserData.value = data
-            _authState.value = AuthState.Authenticated
-        }
-    }
-
-    fun register(user: User, pass: String) {
-        if (!PasswordValidator.isValid(pass)) {
-            _authState.value = AuthState.Error(PasswordValidator.getErrorMessage())
-            return
-        }
-        _authState.value = AuthState.Loading
-        viewModelScope.launch {
-            try {
-                repository.register(user, pass)
-                completeLoginFlow()
-            } catch (e: Exception) {
-                _authState.value = AuthState.Error(mapFirebaseError(e))
-            }
-        }
-    }
-
-    fun completeOnboarding() {
-        val uid = repository.currentUser?.uid ?: return
-        viewModelScope.launch {
-            try {
-                repository.setOnboarded(uid)
-                _currentUserData.value = _currentUserData.value?.copy(onboarded = true)
-            } catch (e: Exception) {
-                Log.e("UniFlowAuth", "Onboarding save failed", e)
-            }
-        }
-    }
-
-    fun changePassword(newPass: String) {
-        if (!PasswordValidator.isValid(newPass)) {
-            _authState.value = AuthState.Error(PasswordValidator.getErrorMessage())
-            return
-        }
-
-        _authState.value = AuthState.Loading
-        viewModelScope.launch {
-            try {
-                repository.changePassword(newPass)
-                val uid = repository.currentUser?.uid
-                if (uid != null) {
-                    repository.setMustChangePassword(uid, false)
-                    _currentUserData.value = _currentUserData.value?.copy(mustChangePassword = false)
-                    _authState.value = AuthState.Authenticated
-                } else {
-                    _authState.value = AuthState.Error("Oturum bulunamadı.")
-                }
-            } catch (e: Exception) {
-                _authState.value = AuthState.Error(mapFirebaseError(e))
-            }
-        }
-    }
-
-    private fun mapFirebaseError(e: Exception): String {
-        return if (e is FirebaseAuthException) {
-            when (e.errorCode) {
-                "ERROR_INVALID_EMAIL", "ERROR_USER_NOT_FOUND" -> "Kullanıcı adı veya şifre hatalı."
-                "ERROR_WRONG_PASSWORD" -> "Hatalı şifre."
-                "ERROR_EMAIL_ALREADY_IN_USE" -> "Bu kullanıcı adı zaten alınmış."
-                "ERROR_WEAK_PASSWORD" -> "Şifre çok zayıf."
-                else -> "Hata: ${e.localizedMessage}"
-            }
-        } else {
-            e.localizedMessage ?: "Beklenmedik bir hata oluştu."
-        }
-    }
-
-    fun logout() {
-        repository.logout()
-        _currentUserData.value = null
-        _authState.value = AuthState.Idle
-    }
-}
 
 sealed class AuthState {
     object Idle : AuthState()
     object Loading : AuthState()
-    object Authenticated : AuthState()
+    data class Success(val user: User) : AuthState()
     data class Error(val message: String) : AuthState()
+}
+
+@HiltViewModel
+class AuthViewModel @Inject constructor(
+    private val authRepository: AuthRepository,
+    private val dataRepository: DataRepository
+) : ViewModel() {
+
+    private val _loginState = MutableStateFlow<AuthState>(AuthState.Idle)
+    val loginState: StateFlow<AuthState> = _loginState
+
+    private val _currentUser = MutableStateFlow<User?>(null)
+    val currentUserData: StateFlow<User?> = _currentUser.asStateFlow()
+
+    fun login(username: String, pass: String) {
+        if (username.isBlank() || pass.isBlank()) {
+            _loginState.value = AuthState.Error("Username and password cannot be empty")
+            return
+        }
+
+        _loginState.value = AuthState.Loading
+        viewModelScope.launch {
+            try {
+                val hashedPassword = HashUtils.sha256(pass)
+                val user = authRepository.loginCustom(username.lowercase().trim(), hashedPassword)
+                
+                if (user != null) {
+                    _currentUser.value = user
+                    _loginState.value = AuthState.Success(user)
+                } else {
+                    _loginState.value = AuthState.Error("Invalid username or password")
+                }
+            } catch (e: Exception) {
+                _loginState.value = AuthState.Error(e.message ?: "An unexpected error occurred")
+            }
+        }
+    }
+
+    fun register(user: User, pass: String) {
+        if (pass.isBlank()) {
+            _loginState.value = AuthState.Error("Password cannot be empty")
+            return
+        }
+        _loginState.value = AuthState.Loading
+        viewModelScope.launch {
+            try {
+                val passHash = HashUtils.sha256(pass)
+                authRepository.register(user, passHash)
+                val registeredUser = authRepository.getUserData(user.username)
+                if (registeredUser != null) {
+                    _currentUser.value = registeredUser
+                    _loginState.value = AuthState.Success(registeredUser)
+                } else {
+                    _loginState.value = AuthState.Error("Registration failed - user data not found")
+                }
+            } catch (e: Exception) {
+                _loginState.value = AuthState.Error(e.message ?: "Registration failed")
+            }
+        }
+    }
+
+    fun logout() {
+        authRepository.logout()
+        _currentUser.value = null
+        _loginState.value = AuthState.Idle
+    }
+
+    fun resetState() {
+        _loginState.value = AuthState.Idle
+    }
 }

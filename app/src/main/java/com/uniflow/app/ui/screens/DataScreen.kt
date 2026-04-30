@@ -1,7 +1,8 @@
 package com.uniflow.app.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
-import android.os.Environment
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -29,10 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.uniflow.app.data.model.Course
-import com.uniflow.app.data.model.User
-import org.apache.poi.xssf.usermodel.XSSFWorkbook
-import java.io.File
-import java.io.FileOutputStream
+import com.uniflow.app.data.model.Lecturer
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,9 +43,10 @@ fun DataScreen(viewModel: DataViewModel = hiltViewModel()) {
     val allCourses by viewModel.allCourses.collectAsState()
     val allLecturers by viewModel.allLecturers.collectAsState()
     val newCourseCodes by viewModel.newCourseCodes.collectAsState()
+    val generatedCredentials by viewModel.generatedCredentials.collectAsState()
     
     val snackbarHostState = remember { SnackbarHostState() }
-    var selectedLecturer by remember { mutableStateOf<User?>(null) }
+    var selectedLecturer by remember { mutableStateOf<Lecturer?>(null) }
     var showLecturerDetails by remember { mutableStateOf(false) }
 
     val launcher = rememberLauncherForActivityResult(
@@ -88,7 +87,6 @@ fun DataScreen(viewModel: DataViewModel = hiltViewModel()) {
                 .padding(padding)
                 .background(Color(0xFFF8F9FF))
         ) {
-            // Stats Row (Videodaki gibi yan yana iki kart)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -109,7 +107,6 @@ fun DataScreen(viewModel: DataViewModel = hiltViewModel()) {
                 )
             }
 
-            // Tab View
             var selectedTab by remember { mutableIntStateOf(0) }
             val tabs = listOf("Directory", "Faculty Members")
             
@@ -133,7 +130,6 @@ fun DataScreen(viewModel: DataViewModel = hiltViewModel()) {
                 }
             }
 
-            // Empty State Control
             if (allCourses.isEmpty() && allLecturers.isEmpty() && importedCourses.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -161,12 +157,10 @@ fun DataScreen(viewModel: DataViewModel = hiltViewModel()) {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (selectedTab == 0) {
-                        // Directory View
                         items(allCourses) { course ->
                             CourseListItem(course)
                         }
                     } else {
-                        // Faculty View
                         items(allLecturers) { lecturer ->
                             LecturerListItem(lecturer) {
                                 selectedLecturer = lecturer
@@ -179,7 +173,6 @@ fun DataScreen(viewModel: DataViewModel = hiltViewModel()) {
         }
     }
 
-    // Preview Dialog
     if (uiState is DataUiState.Preview) {
         ExcelPreviewDialog(
             courses = importedCourses,
@@ -189,7 +182,13 @@ fun DataScreen(viewModel: DataViewModel = hiltViewModel()) {
         )
     }
 
-    // Modal Details
+    if (uiState is DataUiState.Success && generatedCredentials.isNotEmpty()) {
+        CredentialsDialog(
+            credentials = generatedCredentials,
+            onDismiss = { viewModel.clearCredentials() }
+        )
+    }
+
     if (showLecturerDetails && selectedLecturer != null) {
         LecturerDetailsDialog(
             lecturer = selectedLecturer!!,
@@ -198,7 +197,6 @@ fun DataScreen(viewModel: DataViewModel = hiltViewModel()) {
         )
     }
 
-    // Loading Overlay
     if (uiState is DataUiState.Loading) {
         Dialog(onDismissRequest = {}) {
             Box(
@@ -217,12 +215,68 @@ fun DataScreen(viewModel: DataViewModel = hiltViewModel()) {
     }
 
     LaunchedEffect(uiState) {
-        if (uiState is DataUiState.Success) {
+        if (uiState is DataUiState.Success && generatedCredentials.isEmpty()) {
             snackbarHostState.showSnackbar("Data synced successfully!")
         } else if (uiState is DataUiState.Error) {
             snackbarHostState.showSnackbar("Error: ${(uiState as DataUiState.Error).message}")
         }
     }
+}
+
+@Composable
+fun CredentialsDialog(
+    credentials: List<Pair<String, String>>,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Generated Credentials", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text(
+                    "IMPORTANT: These passwords will not be shown again. Please copy them now.",
+                    color = Color.Red,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 16.sp
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                    items(credentials) { (username, password) ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(username, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text(password, color = Color(0xFF1A237E), fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, fontSize = 13.sp)
+                        }
+                        HorizontalDivider(thickness = 0.5.dp, color = Color.LightGray)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val textToCopy = credentials.joinToString("\n") { "${it.first}: ${it.second}" }
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val clip = ClipData.newPlainText("UNIFLOW Credentials", textToCopy)
+                    clipboard.setPrimaryClip(clip)
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A237E))
+            ) {
+                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Copy All")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close & Clear", color = Color.Gray)
+            }
+        }
+    )
 }
 
 @Composable
@@ -238,7 +292,7 @@ fun CourseListItem(course: Course) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = course.courseCode,
+                text = course.code,
                 fontWeight = FontWeight.Bold,
                 color = Color(0xFF1A237E),
                 modifier = Modifier.width(80.dp)
@@ -252,7 +306,7 @@ fun CourseListItem(course: Course) {
 }
 
 @Composable
-fun LecturerListItem(lecturer: User, onClick: () -> Unit) {
+fun LecturerListItem(lecturer: Lecturer, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
@@ -267,12 +321,12 @@ fun LecturerListItem(lecturer: User, onClick: () -> Unit) {
                 modifier = Modifier.size(40.dp).clip(CircleShape).background(Color(0xFF1A237E)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(text = lecturer.name.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
+                Text(text = lecturer.firstName.take(1).uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = "${lecturer.name} ${lecturer.surname}", fontWeight = FontWeight.SemiBold)
-                Text(text = lecturer.position, fontSize = 12.sp, color = Color.Gray)
+                Text(text = "${lecturer.title} ${lecturer.firstName} ${lecturer.lastName}", fontWeight = FontWeight.SemiBold)
+                Text(text = lecturer.role, fontSize = 12.sp, color = Color.Gray)
             }
             Icon(Icons.Default.ChevronRight, contentDescription = null, tint = Color.LightGray)
         }
@@ -318,12 +372,12 @@ fun ExcelPreviewDialog(
                 }
                 
                 courses.take(3).forEach { course ->
-                    val isNew = course.courseCode in newCodes
+                    val isNew = course.code in newCodes
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(course.courseCode, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                        Text(course.code, fontSize = 10.sp, modifier = Modifier.weight(1f))
                         Text(course.name, fontSize = 10.sp, modifier = Modifier.weight(2f))
                         Text(
                             text = if (isNew) "NEW" else "UPDATE",
@@ -358,7 +412,7 @@ fun ExcelPreviewDialog(
 }
 
 @Composable
-fun LecturerDetailsDialog(lecturer: User, courses: List<Course>, onDismiss: () -> Unit) {
+fun LecturerDetailsDialog(lecturer: Lecturer, courses: List<Course>, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         Card(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -373,11 +427,11 @@ fun LecturerDetailsDialog(lecturer: User, courses: List<Course>, onDismiss: () -
                     modifier = Modifier.size(80.dp).clip(CircleShape).background(Color(0xFF1A237E)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(text = lecturer.name.take(1).uppercase(), color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
+                    Text(text = lecturer.firstName.take(1).uppercase(), color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Bold)
                 }
                 Spacer(modifier = Modifier.height(16.dp))
-                Text(text = "${lecturer.name} ${lecturer.surname}", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                Text(text = lecturer.position, color = Color.Gray)
+                Text(text = "${lecturer.title} ${lecturer.firstName} ${lecturer.lastName}", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                Text(text = lecturer.role, color = Color.Gray)
                 
                 Spacer(modifier = Modifier.height(24.dp))
                 Text("Assigned Courses", modifier = Modifier.fillMaxWidth(), fontWeight = FontWeight.Bold)
@@ -386,7 +440,7 @@ fun LecturerDetailsDialog(lecturer: User, courses: List<Course>, onDismiss: () -
                 LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
                     items(courses) { course ->
                         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                            Text(course.courseCode, fontWeight = FontWeight.Bold, color = Color(0xFF1A237E), modifier = Modifier.width(70.dp), fontSize = 13.sp)
+                            Text(course.code, fontWeight = FontWeight.Bold, color = Color(0xFF1A237E), modifier = Modifier.width(70.dp), fontSize = 13.sp)
                             Text(course.name, fontSize = 13.sp)
                         }
                     }
@@ -398,26 +452,4 @@ fun LecturerDetailsDialog(lecturer: User, courses: List<Course>, onDismiss: () -
             }
         }
     }
-}
-
-fun downloadSampleExcel(context: Context) {
-    val workbook = XSSFWorkbook()
-    val sheet = workbook.createSheet("Courses")
-    val headerRow = sheet.createRow(0)
-    headerRow.createCell(0).setCellValue("Course Code")
-    headerRow.createCell(1).setCellValue("Course Name")
-    headerRow.createCell(2).setCellValue("Lecturer Name")
-    headerRow.createCell(3).setCellValue("Department")
-
-    val sampleRow = sheet.createRow(1)
-    sampleRow.createCell(0).setCellValue("CSE101")
-    sampleRow.createCell(1).setCellValue("Introduction to Programming")
-    sampleRow.createCell(2).setCellValue("Prof. Dr. John Doe")
-    sampleRow.createCell(3).setCellValue("Computer Engineering")
-
-    val file = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "UniFlow_Sample.xlsx")
-    try {
-        FileOutputStream(file).use { workbook.write(it) }
-        workbook.close()
-    } catch (e: Exception) { e.printStackTrace() }
 }

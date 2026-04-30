@@ -24,7 +24,7 @@ import com.uniflow.app.ui.auth.AuthViewModel
 fun CalendarScreen(
     adminViewModel: AdminViewModel = hiltViewModel(),
     lecturerViewModel: LecturerViewModel = hiltViewModel(),
-    authViewModel: AuthViewModel = hiltViewModel()
+    authViewModel: AuthViewModel
 ) {
     val days = listOf("Mon", "Tue", "Wed", "Thu", "Fri")
     val slots = listOf("Morning", "Afternoon")
@@ -33,7 +33,7 @@ fun CalendarScreen(
 
     val isAdmin = userData?.role == "Admin"
 
-    // Collect conditionally to avoid unnecessary or unauthorized query execution for lecturers
+    // Use derived state for entries to ensure proper observation
     val entries by (if (isAdmin) {
         adminViewModel.allScheduleEntries
     } else {
@@ -43,8 +43,9 @@ fun CalendarScreen(
     val allCourses by adminViewModel.allCourses.collectAsState()
 
     LaunchedEffect(userData) {
-        if (userData != null && !isAdmin) {
-            lecturerViewModel.setLecturerId(userData!!.username)
+        userData?.let { user ->
+            // Update VM with latest username to trigger filtering
+            lecturerViewModel.setLecturerId(user.username)
         }
     }
 
@@ -62,7 +63,7 @@ fun CalendarScreen(
         )
 
         LazyVerticalGrid(
-            columns = GridCells.Fixed(3), // Time slot + Day columns
+            columns = GridCells.Fixed(3), 
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -89,8 +90,11 @@ fun CalendarScreen(
                 }
                 
                 repeat(2) { slotIndex ->
-                    val entryInSlot = entries.find { it.day == dayIndex && it.timeSlot == slotIndex }
-                    val course = allCourses.find { it.courseCode == entryInSlot?.courseId || it.code == entryInSlot?.courseId }
+                    // Robust finding with Long/Int conversion safety
+                    val entryInSlot = entries.find { 
+                        it.day.toLong() == dayIndex.toLong() && it.timeSlot.toLong() == slotIndex.toLong() 
+                    }
+                    val course = allCourses.find { it.code == entryInSlot?.courseId || it.id == entryInSlot?.courseId }
                     
                     item {
                         CalendarSlot(entryInSlot, course)
@@ -123,14 +127,15 @@ fun CalendarSlot(entry: ScheduleEntry?, course: Course?) {
             if (entry != null) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = course?.courseCode ?: entry.courseId,
+                        text = course?.code ?: entry.courseId,
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF1A237E),
                         textAlign = TextAlign.Center
                     )
+                    val courseName = course?.name ?: ""
                     Text(
-                        text = course?.name ?: "",
+                        text = if (courseName.length > 15) courseName.take(13) + ".." else courseName,
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.DarkGray,
                         textAlign = TextAlign.Center,

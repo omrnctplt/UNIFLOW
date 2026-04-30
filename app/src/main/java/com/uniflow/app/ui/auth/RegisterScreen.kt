@@ -6,6 +6,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -13,30 +15,35 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.uniflow.app.data.model.User
+import com.uniflow.app.data.model.UserRole
+import com.uniflow.app.ui.screens.AdminViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RegisterScreen(
-    viewModel: AuthViewModel,
+    authViewModel: AuthViewModel,
+    adminViewModel: AdminViewModel = hiltViewModel(),
     onNavigateToLogin: () -> Unit,
     onRegisterSuccess: () -> Unit
 ) {
     var name by remember { mutableStateOf("") }
     var surname by remember { mutableStateOf("") }
-    var department by remember { mutableStateOf("") }
-    var position by remember { mutableStateOf("Lecturer") }
+    var username by remember { mutableStateOf("") }
+    var selectedDeptId by remember { mutableStateOf("") }
+    var role by remember { mutableStateOf(UserRole.LECTURER.displayName) }
     var password by remember { mutableStateOf("") }
     
-    val departments = listOf("Computer Engineering", "Electrical Engineering", "Mechanical Engineering", "Civil Engineering")
-    val positions = listOf("Admin", "Lecturer")
+    val departments by adminViewModel.allDepartments.collectAsState()
+    val roles = UserRole.entries.map { it.displayName }
     
     var deptExpanded by remember { mutableStateOf(false) }
     var posExpanded by remember { mutableStateOf(false) }
 
-    val authState by viewModel.authState.collectAsState()
+    val authState by authViewModel.loginState.collectAsState()
 
     LaunchedEffect(authState) {
-        if (authState is AuthState.Authenticated) {
+        if (authState is AuthState.Success) {
             onRegisterSuccess()
         }
     }
@@ -50,7 +57,7 @@ fun RegisterScreen(
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "Create Account",
+            text = "Hesap Oluştur",
             style = MaterialTheme.typography.headlineLarge,
             color = Color(0xFF1A237E),
             fontWeight = FontWeight.Bold
@@ -60,7 +67,7 @@ fun RegisterScreen(
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text("Name") },
+            label = { Text("İsim") },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp)
         )
@@ -69,7 +76,16 @@ fun RegisterScreen(
         OutlinedTextField(
             value = surname,
             onValueChange = { surname = it },
-            label = { Text("Surname") },
+            label = { Text("Soyisim") },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedTextField(
+            value = username,
+            onValueChange = { username = it },
+            label = { Text("Kullanıcı Adı") },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp)
         )
@@ -80,13 +96,14 @@ fun RegisterScreen(
             onExpandedChange = { deptExpanded = !deptExpanded },
             modifier = Modifier.fillMaxWidth()
         ) {
+            val selectedDeptName = departments.find { it.id == selectedDeptId }?.name ?: "Bölüm Seçin"
             OutlinedTextField(
-                value = department,
+                value = selectedDeptName,
                 onValueChange = {},
                 readOnly = true,
-                label = { Text("Department") },
+                label = { Text("Bölüm") },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = deptExpanded) },
-                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable, true).fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp)
             )
             ExposedDropdownMenu(
@@ -95,9 +112,9 @@ fun RegisterScreen(
             ) {
                 departments.forEach { dept ->
                     DropdownMenuItem(
-                        text = { Text(dept) },
+                        text = { Text(dept.name) },
                         onClick = {
-                            department = dept
+                            selectedDeptId = dept.id
                             deptExpanded = false
                         }
                     )
@@ -112,23 +129,23 @@ fun RegisterScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             OutlinedTextField(
-                value = position,
+                value = role,
                 onValueChange = {},
                 readOnly = true,
-                label = { Text("Position") },
+                label = { Text("Rol") },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = posExpanded) },
-                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable, true).fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp)
             )
             ExposedDropdownMenu(
                 expanded = posExpanded,
                 onDismissRequest = { posExpanded = false }
             ) {
-                positions.forEach { pos ->
+                roles.forEach { r ->
                     DropdownMenuItem(
-                        text = { Text(pos) },
+                        text = { Text(r) },
                         onClick = {
-                            position = pos
+                            role = r
                             posExpanded = false
                         }
                     )
@@ -140,7 +157,7 @@ fun RegisterScreen(
         OutlinedTextField(
             value = password,
             onValueChange = { password = it },
-            label = { Text("Password") },
+            label = { Text("Şifre") },
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp)
@@ -152,22 +169,22 @@ fun RegisterScreen(
         } else {
             Button(
                 onClick = {
-                    val username = "${name.lowercase()}_${surname.lowercase()}".replace(" ", "")
-                    val user = User(
+                    val newUser = User(
                         name = name,
                         surname = surname,
-                        department = department,
-                        position = position,
-                        role = position, // Using position as role for simplicity
-                        username = username
+                        username = username.lowercase(),
+                        departmentId = selectedDeptId,
+                        department = departments.find { it.id == selectedDeptId }?.name ?: "",
+                        role = role,
+                        position = role // Using role as position for simplicity if not separated
                     )
-                    viewModel.register(user, password)
+                    authViewModel.register(newUser, password)
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 shape = RoundedCornerShape(20.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1A237E))
             ) {
-                Text("Register")
+                Text("Kayıt Ol")
             }
         }
 
@@ -180,7 +197,7 @@ fun RegisterScreen(
         }
 
         TextButton(onClick = onNavigateToLogin) {
-            Text("Already have an account? Login")
+            Text("Zaten hesabın var mı? Giriş yap")
         }
     }
 }

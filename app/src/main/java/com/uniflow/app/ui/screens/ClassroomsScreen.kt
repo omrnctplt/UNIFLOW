@@ -20,11 +20,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 @Composable
 fun ClassroomsScreen(viewModel: AdminViewModel = hiltViewModel()) {
     val classrooms by viewModel.allClassrooms.collectAsState()
+    val departments by viewModel.allDepartments.collectAsState()
     val addState by viewModel.addClassroomState.collectAsState()
 
     var showAddDialog by remember { mutableStateOf(false) }
     var roomCode by remember { mutableStateOf("") }
     var capacity by remember { mutableStateOf("") }
+    var selectedDeptId by remember { mutableStateOf("") }
+    var deptExpanded by remember { mutableStateOf(false) }
+    
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(addState) {
@@ -33,8 +37,9 @@ fun ClassroomsScreen(viewModel: AdminViewModel = hiltViewModel()) {
                 showAddDialog = false
                 roomCode = ""
                 capacity = ""
+                selectedDeptId = ""
                 viewModel.resetAddClassroomState()
-                snackbarHostState.showSnackbar("Classroom added successfully!")
+                snackbarHostState.showSnackbar("Derslik başarıyla eklendi!")
             }
             is UiState.Error -> {
                 snackbarHostState.showSnackbar((addState as UiState.Error).message)
@@ -48,17 +53,17 @@ fun ClassroomsScreen(viewModel: AdminViewModel = hiltViewModel()) {
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(onClick = { showAddDialog = true }, containerColor = Color(0xFF1A237E)) {
-                Icon(Icons.Default.Add, contentDescription = "Add Classroom", tint = Color.White)
+                Icon(Icons.Default.Add, contentDescription = "Derslik Ekle", tint = Color.White)
             }
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
-            Text("Classrooms", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color(0xFF1A237E))
+            Text("Derslikler", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = Color(0xFF1A237E))
             Spacer(modifier = Modifier.height(16.dp))
 
             if (classrooms.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No classrooms found. Add one!")
+                    Text("Henüz derslik eklenmemiş.")
                 }
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -73,8 +78,12 @@ fun ClassroomsScreen(viewModel: AdminViewModel = hiltViewModel()) {
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(classroom.roomCode, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                                Text("Capacity: ${classroom.capacity}", color = Color.Gray)
+                                Column {
+                                    Text(classroom.roomCode, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                    val deptName = departments.find { it.id == classroom.departmentId }?.name ?: "Bilinmeyen Bölüm"
+                                    Text(deptName, fontSize = 12.sp, color = Color.Gray)
+                                }
+                                Text("Kapasite: ${classroom.capacity}", color = Color.Gray)
                             }
                         }
                     }
@@ -86,34 +95,70 @@ fun ClassroomsScreen(viewModel: AdminViewModel = hiltViewModel()) {
     if (showAddDialog) {
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
-            title = { Text("Add Classroom") },
+            title = { Text("Yeni Derslik Ekle") },
             text = {
                 Column {
                     OutlinedTextField(
                         value = roomCode,
                         onValueChange = { roomCode = it },
-                        label = { Text("Room Code") },
+                        label = { Text("Oda Kodu (örn: A-101)") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = capacity,
                         onValueChange = { capacity = it },
-                        label = { Text("Capacity") },
+                        label = { Text("Kapasite") },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    ExposedDropdownMenuBox(
+                        expanded = deptExpanded,
+                        onExpandedChange = { deptExpanded = !deptExpanded }
+                    ) {
+                        val selectedDeptName = departments.find { it.id == selectedDeptId }?.name ?: "Bölüm Seçin"
+                        OutlinedTextField(
+                            value = selectedDeptName,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Bölüm") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = deptExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = deptExpanded,
+                            onDismissRequest = { deptExpanded = false }
+                        ) {
+                            departments.forEach { dept ->
+                                DropdownMenuItem(
+                                    text = { Text(dept.name) },
+                                    onClick = {
+                                        selectedDeptId = dept.id
+                                        deptExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
-                Button(onClick = {
-                    val cap = capacity.toIntOrNull() ?: 0
-                    viewModel.addClassroom(roomCode, cap, "DEPT_TODO")
-                }) {
-                    Text("Add")
+                Button(
+                    onClick = {
+                        val cap = capacity.toIntOrNull() ?: 0
+                        if (roomCode.isNotBlank() && selectedDeptId.isNotBlank()) {
+                            viewModel.addClassroom(roomCode, cap, selectedDeptId)
+                        }
+                    },
+                    enabled = addState !is UiState.Loading
+                ) {
+                    if (addState is UiState.Loading) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
+                    else Text("Ekle")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showAddDialog = false }) { Text("Cancel") }
+                TextButton(onClick = { showAddDialog = false }) { Text("İptal") }
             }
         )
     }

@@ -1,10 +1,7 @@
 package com.uniflow.app.data.repository
 
 import com.google.firebase.firestore.FirebaseFirestore
-import com.uniflow.app.data.model.Classroom
-import com.uniflow.app.data.model.Course
-import com.uniflow.app.data.model.ScheduleEntry
-import com.uniflow.app.data.model.User
+import com.uniflow.app.data.model.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -13,38 +10,77 @@ import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
 import javax.inject.Singleton
 
+class ScheduleConflictException(message: String) : Exception(message)
+
 @Singleton
 class DataRepository @Inject constructor(
     private val firestore: FirebaseFirestore
 ) {
-    suspend fun saveImportedData(courses: List<Course>, lecturers: List<User>) {
+    // --- Data Import & Sync ---
+
+    suspend fun saveImportedData(courses: List<Course>, lecturers: List<Lecturer>) {
         val allOps = mutableListOf<suspend (com.google.firebase.firestore.WriteBatch) -> Unit>()
         
         courses.forEach { course ->
             allOps.add { batch ->
-                val docRef = firestore.collection("courses").document(course.courseCode)
+                val docRef = firestore.collection("courses").document(course.id.ifEmpty { course.code })
                 batch.set(docRef, course)
             }
         }
         
         lecturers.forEach { lecturer ->
             allOps.add { batch ->
-                val docRef = firestore.collection("users").document(lecturer.username)
+                val docRef = firestore.collection("lecturers").document(lecturer.id.ifEmpty { lecturer.username })
                 batch.set(docRef, lecturer)
             }
         }
 
-        // Execute in chunks of 500 with a safety timeout
         allOps.chunked(500).forEach { chunk ->
             val batch = firestore.batch()
             chunk.forEach { op -> op(batch) }
-            
-            // If Firestore doesn't respond in 15 seconds, throw exception to break the loading loop
             withTimeout(15000) {
                 batch.commit().await()
             }
         }
     }
+
+    suspend fun addLecturersBatch(lecturers: List<Lecturer>) {
+        val batch = firestore.batch()
+        lecturers.forEach { lecturer ->
+            val docRef = firestore.collection("lecturers").document()
+            val lecturerWithId = if (lecturer.id.isEmpty()) lecturer.copy(id = docRef.id) else lecturer
+            batch.set(docRef, lecturerWithId)
+        }
+        batch.commit().await()
+    }
+
+    suspend fun addCoursesBatch(courses: List<Course>) {
+        val batch = firestore.batch()
+        courses.forEach { course ->
+            val docRef = firestore.collection("courses").document()
+            val courseWithId = if (course.id.isEmpty()) course.copy(id = docRef.id) else course
+            batch.set(docRef, courseWithId)
+        }
+        batch.commit().await()
+    }
+
+    // --- Departments ---
+
+    fun getAllDepartments(): Flow<List<Department>> = callbackFlow {
+        val subscription = firestore.collection("departments")
+            .addSnapshotListener { snapshot, error ->
+                if (error == null) trySend(snapshot?.toObjects(Department::class.java) ?: emptyList())
+            }
+        awaitClose { subscription.remove() }
+    }
+
+    suspend fun addDepartment(department: Department) {
+        val docRef = firestore.collection("departments").document()
+        department.id = docRef.id
+        docRef.set(department).await()
+    }
+
+    // --- Courses & Lecturers ---
 
     fun getCoursesCount(): Flow<Int> = callbackFlow {
         val subscription = firestore.collection("courses")
@@ -55,8 +91,7 @@ class DataRepository @Inject constructor(
     }
 
     fun getLecturersCount(): Flow<Int> = callbackFlow {
-        val subscription = firestore.collection("users")
-            .whereEqualTo("role", "Lecturer")
+        val subscription = firestore.collection("lecturers")
             .addSnapshotListener { snapshot, error ->
                 if (error == null) trySend(snapshot?.size() ?: 0)
             }
@@ -71,24 +106,28 @@ class DataRepository @Inject constructor(
         awaitClose { subscription.remove() }
     }
 
-    fun getAllLecturers(): Flow<List<User>> = callbackFlow {
-        val subscription = firestore.collection("users")
-            .whereEqualTo("role", "Lecturer")
+    fun getAllLecturers(): Flow<List<Lecturer>> = callbackFlow {
+        val subscription = firestore.collection("lecturers")
             .addSnapshotListener { snapshot, error ->
-                if (error == null) trySend(snapshot?.toObjects(User::class.java) ?: emptyList())
+                if (error == null) trySend(snapshot?.toObjects(Lecturer::class.java) ?: emptyList())
             }
         awaitClose { subscription.remove() }
     }
 
-    suspend fun getCoursesByLecturer(lecturerId: String): List<Course> {
-        return firestore.collection("courses")
-            .whereEqualTo("lecturerId", lecturerId)
+    suspend fun findLecturerByUsername(username: String): Lecturer? {
+        return firestore.collection("lecturers")
+            .whereEqualTo("username", username)
             .get()
             .await()
-            .toObjects(Course::class.java)
+            .toObjects(Lecturer::class.java)
+            .firstOrNull()
     }
 
-    // Phase 2 Methods
+    suspend fun updateLecturer(lecturer: Lecturer) {
+        firestore.collection("lecturers").document(lecturer.id).set(lecturer).await()
+    }
+
+    // --- Classrooms ---
 
     fun getAllClassrooms(): Flow<List<Classroom>> = callbackFlow {
         val subscription = firestore.collection("classrooms")
@@ -104,6 +143,8 @@ class DataRepository @Inject constructor(
         docRef.set(classroom).await()
     }
 
+    // --- Schedule & Assignments ---
+
     fun getAllScheduleEntries(): Flow<List<ScheduleEntry>> = callbackFlow {
         val subscription = firestore.collection("schedule_entries")
             .addSnapshotListener { snapshot, error ->
@@ -112,17 +153,7 @@ class DataRepository @Inject constructor(
         awaitClose { subscription.remove() }
     }
 
-    fun getScheduleEntriesForLecturer(lecturerId: String): Flow<List<ScheduleEntry>> = callbackFlow {
-        val subscription = firestore.collection("schedule_entries")
-            .whereEqualTo("lecturer_id", lecturerId)
-            .addSnapshotListener { snapshot, error ->
-                if (error == null) trySend(snapshot?.toObjects(ScheduleEntry::class.java) ?: emptyList())
-            }
-        awaitClose { subscription.remove() }
-    }
-
     suspend fun addScheduleEntry(entry: ScheduleEntry) {
-        // Prevent double booking logic
         val existingEntries = firestore.collection("schedule_entries")
             .whereEqualTo("day", entry.day)
             .whereEqualTo("time_slot", entry.timeSlot)
@@ -132,15 +163,19 @@ class DataRepository @Inject constructor(
 
         for (existing in existingEntries) {
             if (existing.classroomId == entry.classroomId) {
-                throw Exception("Classroom is already booked for this time slot.")
+                throw ScheduleConflictException("Bu derslik belirtilen gün ve saatte zaten dolu.")
             }
             if (existing.lecturerId == entry.lecturerId) {
-                throw Exception("Lecturer is already booked for this time slot.")
+                throw ScheduleConflictException("Bu hoca belirtilen gün ve saatte zaten dolu.")
             }
         }
 
         val docRef = firestore.collection("schedule_entries").document()
         entry.id = docRef.id
         docRef.set(entry).await()
+    }
+
+    suspend fun deleteScheduleEntry(id: String) {
+        firestore.collection("schedule_entries").document(id).delete().await()
     }
 }

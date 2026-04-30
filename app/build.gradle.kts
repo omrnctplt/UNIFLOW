@@ -72,7 +72,7 @@ dependencies {
     // Firebase
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.analytics)
-    implementation(libs.firebase.auth)
+    // Firebase Auth removed - using custom Firestore auth
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.storage)
     implementation(libs.kotlinx.coroutines.play.services)
@@ -88,6 +88,9 @@ dependencies {
     
     // DataStore
     implementation(libs.androidx.datastore.preferences)
+
+    // Security
+    implementation(libs.androidx.security.crypto)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

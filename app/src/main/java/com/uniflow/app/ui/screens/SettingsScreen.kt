@@ -10,10 +10,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.uniflow.app.ui.auth.AuthViewModel
+import com.uniflow.app.ui.auth.AuthState
 
 @Composable
 fun SettingsScreen(viewModel: AuthViewModel = hiltViewModel()) {
-    val userData by viewModel.currentUserData.collectAsState()
+    val authState by viewModel.loginState.collectAsState()
+    val userData = if (authState is AuthState.Success) (authState as AuthState.Success).user else null
 
     Column(
         modifier = Modifier
@@ -33,10 +35,10 @@ fun SettingsScreen(viewModel: AuthViewModel = hiltViewModel()) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text("Account Info", style = MaterialTheme.typography.titleMedium, color = Color(0xFF1A237E))
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Name: ${userData?.name} ${userData?.surname}")
+                Text("Name: ${userData?.firstName} ${userData?.lastName}")
                 Text("Username: ${userData?.username}")
                 Text("Role: ${userData?.role}")
-                Text("Dept: ${userData?.department}")
+                Text("Dept ID: ${userData?.departmentId}")
             }
         }
 

@@ -1,79 +1,110 @@
 package com.uniflow.app.data.repository
 
 import android.util.Log
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import com.uniflow.app.data.model.User
+import com.uniflow.app.utils.HashUtils
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class AuthRepository @Inject constructor(
-    private val auth: FirebaseAuth,
     private val firestore: FirebaseFirestore
 ) {
-    val currentUser: FirebaseUser? get() = auth.currentUser
-
-    suspend fun login(username: String, pass: String) {
-        val email = "$username@uniflow.com"
-        auth.signInWithEmailAndPassword(email, pass).await()
+    suspend fun loginCustom(username: String, passwordHash: String): User? {
+        Log.d("AuthRepository", "Attempting login for user: $username")
+        
+        // Try searching in both collections
+        val collections = listOf("users", "lecturers")
+        
+        for (col in collections) {
+            // 1. Try by document ID
+            val docById = firestore.collection(col).document(username).get().await()
+            if (docById.exists()) {
+                val data = docById.data
+                val storedHash = data?.get("password_hash") as? String
+                if (storedHash == passwordHash) {
+                    return mapToUser(data, username)
+                }
+            }
+            
+            // 2. Try by field query
+            val query = firestore.collection(col).whereEqualTo("username", username).get().await()
+            if (!query.isEmpty) {
+                val doc = query.documents.first()
+                val data = doc.data
+                val storedHash = data?.get("password_hash") as? String
+                if (storedHash == passwordHash) {
+                    return mapToUser(data, username)
+                }
+            }
+        }
+        
+        Log.d("AuthRepository", "Login failed: User not found or password mismatch for $username")
+        return null
     }
 
-    suspend fun register(user: User, pass: String) {
-        val email = "${user.username}@uniflow.com"
-        val result = auth.createUserWithEmailAndPassword(email, pass).await()
-        val uid = result.user?.uid ?: throw Exception("Auth failed")
-        val newUser = user.copy(uid = uid)
-        firestore.collection("users").document(uid).set(newUser).await()
+    private fun mapToUser(data: Map<String, Any>?, username: String): User {
+        if (data == null) return User(username = username)
+        
+        // Manual mapping to handle different field names (camelCase vs snake_case)
+        return User(
+            username = data["username"] as? String ?: username,
+            passwordHash = data["password_hash"] as? String ?: "",
+            role = data["role"] as? String ?: "Lecturer",
+            firstName = (data["first_name"] ?: data["firstName"]) as? String ?: "",
+            lastName = (data["last_name"] ?: data["lastName"]) as? String ?: "",
+            name = data["name"] as? String ?: "",
+            surname = data["surname"] as? String ?: "",
+            departmentId = (data["department_id"] ?: data["departmentId"]) as? String ?: "",
+            mustChangePassword = data["must_change_password"] as? Boolean ?: false,
+            onboarded = data["onboarded"] as? Boolean ?: false,
+            id = (data["id"] ?: data["uid"]) as? String ?: username
+        )
     }
 
-    suspend fun getUserData(uid: String): User? {
-        return firestore.collection("users").document(uid).get().await().toObject(User::class.java)
-    }
-
-    suspend fun findImportedUser(username: String): User? {
-        Log.d("UniFlowAuth", "Searching for imported user: $username")
-        val doc = firestore.collection("users").document(username).get().await()
-        return if (doc.exists()) {
-            Log.d("UniFlowAuth", "User found in Firestore!")
-            doc.toObject(User::class.java)
-        } else {
-            Log.d("UniFlowAuth", "User NOT found in Firestore.")
-            null
+    suspend fun updatePassword(username: String, newPasswordHash: String) {
+        val collections = listOf("users", "lecturers")
+        for (col in collections) {
+            val docById = firestore.collection(col).document(username).get().await()
+            if (docById.exists()) {
+                firestore.collection(col).document(username).update(
+                    "password_hash", newPasswordHash,
+                    "must_change_password", false
+                ).await()
+                return
+            }
+            
+            val query = firestore.collection(col).whereEqualTo("username", username).get().await()
+            if (!query.isEmpty) {
+                query.documents.first().reference.update(
+                    "password_hash", newPasswordHash,
+                    "must_change_password", false
+                ).await()
+                return
+            }
         }
     }
 
-    suspend fun upgradeImportedUser(user: User, pass: String) {
-        Log.d("UniFlowAuth", "Upgrading user to Firebase Auth: ${user.username}")
-        val email = "${user.username}@uniflow.com"
-        
-        // Önce Firebase Auth hesabı oluştur
-        val result = auth.createUserWithEmailAndPassword(email, pass).await()
-        val uid = result.user?.uid ?: throw Exception("Auth creation failed")
-        
-        // Veriyi UID ile yeni dökümana taşı
-        val updatedUser = user.copy(uid = uid)
-        firestore.collection("users").document(uid).set(updatedUser).await()
-        
-        // Eski (username bazlı) dökümanı sil
-        firestore.collection("users").document(user.username).delete().await()
-        Log.d("UniFlowAuth", "Upgrade complete for UID: $uid")
+    suspend fun register(user: User, passHash: String) {
+        val newUser = user.copy(passwordHash = passHash)
+        firestore.collection("users").document(user.username).set(newUser).await()
     }
 
-    suspend fun setOnboarded(uid: String) {
-        firestore.collection("users").document(uid).update("onboarded", true).await()
+    suspend fun getUserData(username: String): User? {
+        val collections = listOf("users", "lecturers")
+        for (col in collections) {
+            val doc = firestore.collection(col).document(username).get().await()
+            if (doc.exists()) return mapToUser(doc.data, username)
+            
+            val query = firestore.collection(col).whereEqualTo("username", username).get().await()
+            if (!query.isEmpty) return mapToUser(query.documents.first().data, username)
+        }
+        return null
     }
 
-    suspend fun changePassword(newPass: String) {
-        val user = auth.currentUser ?: throw Exception("User not logged in")
-        user.updatePassword(newPass).await()
+    fun logout() {
+        // Local session clear
     }
-
-    suspend fun setMustChangePassword(uid: String, mustChange: Boolean) {
-        firestore.collection("users").document(uid).update("must_change_password", mustChange).await()
-    }
-
-    fun logout() = auth.signOut()
 }

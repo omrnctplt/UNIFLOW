@@ -15,13 +15,38 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.uniflow.app.data.model.User
+import com.uniflow.app.data.model.UserRole
 import com.uniflow.app.ui.auth.AuthViewModel
+import com.uniflow.app.ui.auth.AuthState
 
 @Composable
-fun HomeScreen(viewModel: AuthViewModel = hiltViewModel(), adminViewModel: AdminViewModel = hiltViewModel()) {
-    val userData by viewModel.currentUserData.collectAsState()
+fun HomeScreen(
+    authViewModel: AuthViewModel = hiltViewModel(), 
+    adminViewModel: AdminViewModel = hiltViewModel()
+) {
+    val authState by authViewModel.loginState.collectAsState()
+    
+    val user = if (authState is AuthState.Success) (authState as AuthState.Success).user else null
 
-    // For Admin Dashboard
+    if (user == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+
+    if (user.role == UserRole.ADMIN.displayName) {
+        AdminHomeContent(adminViewModel, user)
+    } else {
+        // LecturerHomeScreen expects a User or Lecturer? 
+        // Let's call the real LecturerHomeScreen instead of the placeholder
+        LecturerHomeScreen(user)
+    }
+}
+
+@Composable
+fun AdminHomeContent(adminViewModel: AdminViewModel, admin: User) {
     val allCourses by adminViewModel.allCourses.collectAsState()
     val allLecturers by adminViewModel.allLecturers.collectAsState()
     val allClassrooms by adminViewModel.allClassrooms.collectAsState()
@@ -32,14 +57,13 @@ fun HomeScreen(viewModel: AuthViewModel = hiltViewModel(), adminViewModel: Admin
             .fillMaxSize()
             .padding(24.dp)
     ) {
-        val titleText = if (userData?.role == "Admin") "Admin" else "${userData?.title} ${userData?.name} ${userData?.surname}".trim()
         Text(
             text = "Welcome,",
             fontSize = 16.sp,
             color = Color.Gray
         )
         Text(
-            text = titleText,
+            text = "Admin ${admin.name}",
             fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
             color = Color(0xFF1A237E)
@@ -74,13 +98,13 @@ fun HomeScreen(viewModel: AuthViewModel = hiltViewModel(), adminViewModel: Admin
                 
                 Column {
                     Text(
-                        text = userData?.department ?: "No Department",
+                        text = "System Administrator",
                         color = Color.White,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = userData?.position ?: "No Position",
+                        text = "Management Console",
                         color = Color.White.copy(alpha = 0.7f),
                         fontSize = 14.sp
                     )
@@ -90,23 +114,13 @@ fun HomeScreen(viewModel: AuthViewModel = hiltViewModel(), adminViewModel: Admin
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        if (userData?.role == "Admin") {
-            val unassignedLecturers = allLecturers.count { lecturer -> allScheduleEntries.none { it.lecturerId == lecturer.username } }
-            val unassignedCourses = allCourses.count { course -> allScheduleEntries.none { it.courseId == course.courseCode || it.courseId == course.code } }
-
-            // Available classrooms: total classrooms minus classrooms that are fully booked for all 10 slots (5 days * 2 slots)
-            // Or simpler for this scope: count classrooms with at least one free slot (which is practically all unless completely full)
-            // A more strict interpretation: no entries at all, but the prompt says "No entries, or at least one free slot left".
-            // Since max slots is 10, a classroom is available if it has < 10 entries.
-            val availableClassrooms = allClassrooms.count { classroom ->
-                allScheduleEntries.count { it.classroomId == classroom.roomCode } < 10
-            }
-
-            AdminDashboard(unassignedLecturers, unassignedCourses, availableClassrooms)
-        } else {
-            val assignedEntries = allScheduleEntries.count { it.lecturerId == userData?.username }
-            LecturerDashboard(assignedEntries)
+        val unassignedLecturers = allLecturers.count { l -> allScheduleEntries.none { it.lecturerId == l.id || it.lecturerId == l.username } }
+        val unassignedCourses = allCourses.count { c -> allScheduleEntries.none { it.courseId == c.id || it.courseId == c.code } }
+        val availableClassrooms = allClassrooms.count { room ->
+            allScheduleEntries.count { it.classroomId == room.id || it.classroomId == room.roomCode } < 10
         }
+
+        AdminDashboard(unassignedLecturers, unassignedCourses, availableClassrooms)
     }
 }
 
@@ -121,27 +135,29 @@ fun AdminDashboard(unassignedLecturers: Int, unassignedCourses: Int, availableCl
     Spacer(modifier = Modifier.height(16.dp))
 
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        StatCard("Unassigned\nLecturers", unassignedLecturers, Icons.Default.Warning, Modifier.weight(1f))
-        StatCard("Unassigned\nCourses", unassignedCourses, Icons.Default.Warning, Modifier.weight(1f))
+        HomeStatCard("Unassigned\nLecturers", unassignedLecturers, Icons.Default.Warning, Modifier.weight(1f))
+        HomeStatCard("Unassigned\nCourses", unassignedCourses, Icons.Default.Warning, Modifier.weight(1f))
     }
     Spacer(modifier = Modifier.height(16.dp))
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        StatCard("Available\nClassrooms", availableClassrooms, Icons.Default.CheckCircle, Modifier.weight(1f))
+        HomeStatCard("Available\nClassrooms", availableClassrooms, Icons.Default.CheckCircle, Modifier.weight(1f))
     }
 }
 
 @Composable
-fun LecturerDashboard(assignedEntries: Int) {
+fun HomeStatCard(label: String, value: Int, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier,
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("Weekly Summary", fontWeight = FontWeight.Bold, color = Color(0xFF1A237E))
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Total assigned courses for the current week: $assignedEntries", color = Color.Gray)
+            Icon(icon, contentDescription = null, tint = Color(0xFF1A237E), modifier = Modifier.size(24.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(text = value.toString(), fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+            Text(text = label, fontSize = 12.sp, color = Color.Gray, lineHeight = 16.sp)
         }
     }
 }
